@@ -1,6 +1,7 @@
 package naive_bayes;
 
 import java.io.BufferedReader;
+import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -16,33 +17,44 @@ public class NaiveBayes {
 
 	private String SPACE=" ";
 	private String COMMA=",";
-
 	private int mTargetIdx=-1;
-
 	private boolean KEEP_DUPLICATES = true;//false;
 
 	/** The unique attributes. */
-	private List<String> mAttributes = new ArrayList<String>();
+	private List<String> mAttributes = 
+			new ArrayList<String>();
 
 	/** Stores the target class priors */
-	private HashMap<String, Double> mClassPriors = new HashMap<String, Double>();
-
+	private HashMap<String, Double> mClassPriors = null; 
+			
 	/** The attributes to unique values map. */
-	private HashMap<String, List<String>> mAtbToUnqVals= new HashMap<String,List<String>>();
+	private HashMap<String, List<String>> mAtbToUnqVals= 
+			new HashMap<String,List<String>>();
 
 	/** The training data read from file and pre-processed.*/
-	private List<HashMap<String,String> > mTrainingData = new ArrayList<HashMap<String, String>>();
+	private List<HashMap<String,String> > mTrainingData =
+			new ArrayList<HashMap<String, String>>();
 
+	/** The training data read from file and pre-processed.*/
+	private List<HashMap<String,String> > mTestData =
+			new ArrayList<HashMap<String, String>>();
+	
 	/** Holds priors for the attribute values.*/
-	private HashMap<String,HashMap<String,HashMap<String, Double>>> mTargetAtbAtbValToPrior = new HashMap<>();
+	private HashMap<String,HashMap<String,HashMap<String, Double>>>
+					mTgtAtbvToAtbtsToAtbtvToPrior =null;
+	
+	/** Target class occurence count */
+	private HashMap<String,Integer> mTargetAtbValToCount = 
+			new HashMap<String,Integer> ();
 
 
-	public void train(String trainDataPath, String delimiter, int targetIdx) throws IOException {
+
+	public void train(String trainDataPath, String delimiter, int targetIdx) 
+			throws IOException {
 		if(!(delimiter.equals(SPACE) || delimiter.equals(COMMA) )){
 			System.out.println("Error >> Invalid delimiter specified.");
 			return;
 		}
-
 		mTargetIdx = targetIdx;
 
 		/* Read training data from file.*/
@@ -51,56 +63,154 @@ public class NaiveBayes {
 		/* Remove spurious and duplicate data*/
 		preProcessTrainingData();
 
+		/* Calculate priors for class and attributes.*/
 		buildClassifier();
 
 	}
+	
+	
+	public void test(String testDataPath, String delimiter) throws IOException{
+		if(mClassPriors==null){
+			System.out.println("Invalid API sequence >> train() method not called.");
+			return;
+		}
+		readAndStoreTestData(testDataPath,delimiter);
+		
+		List<HashMap<String, Double>> results = new ArrayList<HashMap<String, Double>>();
+		for(int idx=0;idx<mTestData.size();idx++){
+			HashMap<String, Double> result = new HashMap<String, Double>();
+			
+			HashMap<String, String> testData =  mTestData.get(idx);
+					
+			for(String aClass: mClassPriors.keySet()){
+				double prob = mClassPriors.get(aClass);
+				
+				for(String atb:testData.keySet()){
+					if(mAttributes.get(mTargetIdx).equals(atb)){continue;}
+					
+					double atbPrior = 0;
+					
+					HashMap<String, Double> atbValToPrior = mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).get(atb);
+					if(atbValToPrior.containsKey(testData.get(atb))){
+						atbPrior = mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).get(atb).get(testData.get(atb));
+					}else{
+						// Claculate m-estimated probability
+						atbPrior = 0;
+					}
+					prob = prob*atbPrior;
+				} 
+				System.out.println(aClass+"-->"+prob);
+				result.put(aClass, prob);
+			}
+			System.out.println("\n");
+			results.add(result);
+		}
+		System.out.println("---CLASSIFIED---");
+	}
+	
+	
+	private void readAndStoreTestData(String testDataPath, String delimiter) throws IOException{
+		/* Read file lines*/
+		BufferedReader br= new BufferedReader(new FileReader(testDataPath));
+		int lineCount=0;
+		for(String line; (line = br.readLine()) != null;){
+			line = preProcessLine(line);
 
+			/* Continue if empty line*/
+			if(line.length() <1){continue;}
 
+			String[] colTokens = line.trim().toLowerCase().split(delimiter);
+			/* NOTE: It is assumed that the test file has header exactly as the 
+			 * training file, and in the first line.*/
+			if(lineCount>0){
+				HashMap<String,String> atbToAtbVals = new HashMap<String,String>();
+				for(int idx=0; idx<colTokens.length;idx++){
+					atbToAtbVals.put(mAttributes.get(idx),colTokens[idx]);
+					updateAttributebUniqueVals(mAttributes.get(idx),colTokens[idx]);
+				}
+				mTestData.add(atbToAtbVals);
+			}
+			lineCount = lineCount+1;
+		}
+		br.close();
+	}
+	
 	private void buildClassifier(){
-		/* Get target class priors*/
-		HashMap<String,Integer> targetAtbValToCount = new HashMap<String,Integer> (); 
+		
+		/* Calculate class priors.*/
+		calculateClassPriors();
+		
+		/* Calculate priors of each attribute.*/
+		calculatePriorsForEachAttribute();
+
+	}
+	
+	private void calculateClassPriors(){
 		String targetClass= mAttributes.get(mTargetIdx);
 		for(int idx=0; idx<mAtbToUnqVals.get(targetClass).size();idx++){
 			String targetAtbVal = mAtbToUnqVals.get(targetClass).get(idx);
 			for(int cnt=0; cnt<mTrainingData.size();cnt++){
-				if(mTrainingData.get(cnt).get(targetClass).equals(targetAtbVal)){
+				if(mTrainingData.get(cnt).get(targetClass).
+						equals(targetAtbVal)){
 					Integer prevVal = 0;
-					if(targetAtbValToCount.containsKey(targetClass)){
-						prevVal = targetAtbValToCount.get(targetClass);
+					if(mTargetAtbValToCount.containsKey(targetAtbVal)){
+						prevVal = mTargetAtbValToCount.get(targetAtbVal);
 					}
-					targetAtbValToCount.put(targetClass,prevVal+1);
+					mTargetAtbValToCount.put(targetAtbVal,prevVal+1);
 				}
 			}
 		}
-		for(String targetAtb:mClassPriors.keySet() ){
-			Double prior = (double) (targetAtbValToCount.get(targetAtb)/mTrainingData.size());
+		
+		mClassPriors = new HashMap<String, Double>();
+		for(String targetAtb:mTargetAtbValToCount.keySet() ){
+			Double prior = (double) 
+					(mTargetAtbValToCount.get(targetAtb)/(double)mTrainingData.size());
 			mClassPriors.put(targetAtb,prior);
 		}
+	}
 
+	private void calculatePriorsForEachAttribute(){
+		mTgtAtbvToAtbtsToAtbtvToPrior =  new HashMap<>(); 
+		String targetClass= mAttributes.get(mTargetIdx);
+		
 		/* Get class based priors for each attribute-values*/
 		for(int idx=0; idx<mAtbToUnqVals.get(targetClass).size();idx++){
-			HashMap<String,HashMap<String, Double>> atbToatbValCount = new HashMap<String,HashMap<String, Double>>();
+
+			HashMap<String,HashMap<String, Double>> atbToatbValCount =
+					new HashMap<String,HashMap<String, Double>>();
+
 			String targetAtbVal = mAtbToUnqVals.get(targetClass).get(idx);
 			for(String atb:mAtbToUnqVals.keySet()){
-				if(!atb.equals(targetClass)){
-					HashMap<String, Double> atbValToCount = new HashMap<String, Double>();
-					List<String> atbVals = mAtbToUnqVals.get(atb);
-					for(int cnt=0;cnt<atbVals.size();cnt++){
-						atbValToCount.put(atbVals.get(cnt), (double) 0);
-						for(int m=0; m<mTrainingData.size();m++){
-							if( mTrainingData.get(m).get(atb).equals(atbVals.get(cnt))){
-								Double prevVal = atbValToCount.get(atbVals.get(cnt));
-								atbValToCount.put(atbVals.get(cnt), prevVal+1);
-							}
+				if(atb.equals(targetClass)){continue;}
+				
+				HashMap<String, Double> atbValToCount = 
+						new HashMap<String, Double>();
+
+				List<String> atbVals = mAtbToUnqVals.get(atb);
+				for(int cnt=0;cnt<atbVals.size();cnt++){
+					atbValToCount.put(atbVals.get(cnt), (double) 0);
+					for(int m=0; m<mTrainingData.size();m++){
+						
+						if( mTrainingData.get(m).get(atb).equals(atbVals.get(cnt)) &&
+							mTrainingData.get(m).get(targetClass).equals(targetAtbVal)){
+							Double prevVal = 
+									atbValToCount.get(atbVals.get(cnt));
+							atbValToCount.put(atbVals.get(cnt), prevVal+1);
 						}
-						atbToatbValCount.put(atb, atbValToCount);
 					}
+					
+					Double prior = atbValToCount.get(atbVals.get(cnt))/
+							(double)mTargetAtbValToCount.get(targetAtbVal);
+					System.out.println(prior);
+					
+					atbValToCount.put(atbVals.get(cnt), prior);
+					
+					atbToatbValCount.put(atb, atbValToCount);
 				}
 			}
-			mTargetAtbAtbValToPrior.put(targetAtbVal, atbToatbValCount);
+			mTgtAtbvToAtbtsToAtbtvToPrior.put(targetAtbVal, atbToatbValCount);
 		}
 	}
-	
 	
 	private void printTrainingData(int dataIdx){
 		String data="";
@@ -166,7 +276,6 @@ public class NaiveBayes {
 			mTrainingData.remove(idx-shift);
 			shift=shift+1;
 		}
-
 
 		System.out.println("\n\n-----FINAL TRAINING DATA--------");
 		System.out.println("Total Rows:"+mTrainingData.size());
@@ -266,9 +375,12 @@ public class NaiveBayes {
 	 */
 	public static void main(String[] args) {
 		NaiveBayes nb = new NaiveBayes();
-		String trainDataPath="../Ass5-Demo/data2";
+		String testDataPath="../Ass5-Demo/data2";
+		String trainDataPath="../Ass5-Demo/data1";
 		try {
 			nb.train(trainDataPath, " ",4);
+			nb.test(testDataPath, " ");
+			
 		} catch (IOException e) {
 			System.out.println("Error >> Unable to find training data. Check path!");
 		}
