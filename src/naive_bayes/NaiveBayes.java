@@ -1,7 +1,6 @@
 package naive_bayes;
 
 import java.io.BufferedReader;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -43,12 +42,21 @@ public class NaiveBayes {
 	private HashMap<String,HashMap<String,HashMap<String, Double>>>
 					mTgtAtbvToAtbtsToAtbtvToPrior =null;
 	
-	/** Target class occurence count */
+	/** Target class occurrence count */
 	private HashMap<String,Integer> mTargetAtbValToCount = 
 			new HashMap<String,Integer> ();
 
+	/** Stores he final classification. */
+	private List<String> mPredictions = null;
 
-
+	/**
+	 * Trains the classifier.
+	 *
+	 * @param trainDataPath the train data path
+	 * @param delimiter the delimiter
+	 * @param targetIdx the target idx
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
 	public void train(String trainDataPath, String delimiter, int targetIdx) 
 			throws IOException {
 		if(!(delimiter.equals(SPACE) || delimiter.equals(COMMA) )){
@@ -69,14 +77,23 @@ public class NaiveBayes {
 	}
 	
 	
-	public void test(String testDataPath, String delimiter) throws IOException{
+	/**
+	 * Classifies using the trained classifier.
+	 *
+	 * @param testDataPath the test data path
+	 * @param delimiter the delimiter
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
+	public void classify(String testDataPath, String delimiter) 
+			throws IOException{
 		if(mClassPriors==null){
-			System.out.println("Invalid API sequence >> train() method not called.");
+			System.out.println("Invalid API sequence >> train() method not "
+					+ "called.");
 			return;
 		}
 		readAndStoreTestData(testDataPath,delimiter);
 		
-		List<HashMap<String, Double>> results = new ArrayList<HashMap<String, Double>>();
+		mPredictions = new ArrayList<String>();
 		for(int idx=0;idx<mTestData.size();idx++){
 			HashMap<String, Double> result = new HashMap<String, Double>();
 			
@@ -87,29 +104,59 @@ public class NaiveBayes {
 				
 				for(String atb:testData.keySet()){
 					if(mAttributes.get(mTargetIdx).equals(atb)){continue;}
-					
 					double atbPrior = 0;
-					
-					HashMap<String, Double> atbValToPrior = mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).get(atb);
+					HashMap<String, Double> atbValToPrior = 
+						mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).get(atb);
 					if(atbValToPrior.containsKey(testData.get(atb))){
-						atbPrior = mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).get(atb).get(testData.get(atb));
+						atbPrior = mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).
+								get(atb).get(testData.get(atb));
 					}else{
-						// Claculate m-estimated probability
+						// Calculate m-estimated probability
 						atbPrior = 0;
 					}
 					prob = prob*atbPrior;
 				} 
-				System.out.println(aClass+"-->"+prob);
 				result.put(aClass, prob);
 			}
-			System.out.println("\n");
-			results.add(result);
+			mPredictions.add(getPredictedClass(result));
 		}
-		System.out.println("---CLASSIFIED---");
 	}
 	
+	public void evaluate(String resultFilepath){
+		String dataToWrite= "";
+		int correctCount=0;
+		
+		/* Generate the header.*/
+		for(int idx=0;idx<mAttributes.size();idx++){
+			dataToWrite=dataToWrite+" "+mAttributes.get(idx);
+		}
+		dataToWrite = dataToWrite+" "+mAttributes.get(mTargetIdx)+"(Predicted)\n";
+		
+		for(int idx=0;idx<mTestData.size();idx++){
+			for(int cnt=0;cnt<mAttributes.size();cnt++){
+				String atb = mAttributes.get(cnt);
+				dataToWrite= dataToWrite+" "+mTestData.get(idx).get(atb);
+			}
+			
+			correctCount = mTestData.get(idx).get(mAttributes.get(mTargetIdx)).
+					equals(mPredictions.get(idx)) ? correctCount+1:correctCount;
+			
+			dataToWrite = dataToWrite+" "+mPredictions.get(idx)+"\n";
+		}
+		double accuracy = (double)correctCount/(double)mTestData.size();
+		dataToWrite = dataToWrite+"Accuracy:"+correctCount+"/"+mTestData.size()+" = "+accuracy+"\n";
+		System.out.println("\n\n---Predictions--\n"+dataToWrite);
+	}
 	
-	private void readAndStoreTestData(String testDataPath, String delimiter) throws IOException{
+	/**
+	 * Read and store test data.
+	 *
+	 * @param testDataPath the test data path
+	 * @param delimiter the delimiter
+	 * @throws IOException Signals that an I/O exception has occurred.
+	 */
+	private void readAndStoreTestData(String testDataPath, String delimiter) 
+			throws IOException{
 		/* Read file lines*/
 		BufferedReader br= new BufferedReader(new FileReader(testDataPath));
 		int lineCount=0;
@@ -123,10 +170,14 @@ public class NaiveBayes {
 			/* NOTE: It is assumed that the test file has header exactly as the 
 			 * training file, and in the first line.*/
 			if(lineCount>0){
-				HashMap<String,String> atbToAtbVals = new HashMap<String,String>();
+				HashMap<String,String> atbToAtbVals =
+						new HashMap<String,String>();
 				for(int idx=0; idx<colTokens.length;idx++){
+					
 					atbToAtbVals.put(mAttributes.get(idx),colTokens[idx]);
-					updateAttributebUniqueVals(mAttributes.get(idx),colTokens[idx]);
+					
+					updateAttributebUniqueVals(mAttributes.get(idx),
+							colTokens[idx]);
 				}
 				mTestData.add(atbToAtbVals);
 			}
@@ -135,6 +186,9 @@ public class NaiveBayes {
 		br.close();
 	}
 	
+	/**
+	 * Builds the classifier.
+	 */
 	private void buildClassifier(){
 		
 		/* Calculate class priors.*/
@@ -145,6 +199,27 @@ public class NaiveBayes {
 
 	}
 	
+	/**
+	 * Gets the predicted class.
+	 *
+	 * @param result the result
+	 * @return the predicted class
+	 */
+	private String getPredictedClass(HashMap<String, Double> result){
+		double max=0; 
+		String predictedClass="";
+		for(String aClass:result.keySet()){
+			if(result.get(aClass)>max){
+				max = result.get(aClass);
+				predictedClass=aClass;
+			}
+		}
+		return predictedClass;
+	}
+	
+	/**
+	 * Calculate class priors.
+	 */
 	private void calculateClassPriors(){
 		String targetClass= mAttributes.get(mTargetIdx);
 		for(int idx=0; idx<mAtbToUnqVals.get(targetClass).size();idx++){
@@ -163,12 +238,15 @@ public class NaiveBayes {
 		
 		mClassPriors = new HashMap<String, Double>();
 		for(String targetAtb:mTargetAtbValToCount.keySet() ){
-			Double prior = (double) 
-					(mTargetAtbValToCount.get(targetAtb)/(double)mTrainingData.size());
+			Double prior = (double) (mTargetAtbValToCount.get(targetAtb)/
+							(double)mTrainingData.size());
 			mClassPriors.put(targetAtb,prior);
 		}
 	}
 
+	/**
+	 * Calculate priors for each attribute.
+	 */
 	private void calculatePriorsForEachAttribute(){
 		mTgtAtbvToAtbtsToAtbtvToPrior =  new HashMap<>(); 
 		String targetClass= mAttributes.get(mTargetIdx);
@@ -190,9 +268,10 @@ public class NaiveBayes {
 				for(int cnt=0;cnt<atbVals.size();cnt++){
 					atbValToCount.put(atbVals.get(cnt), (double) 0);
 					for(int m=0; m<mTrainingData.size();m++){
-						
-						if( mTrainingData.get(m).get(atb).equals(atbVals.get(cnt)) &&
-							mTrainingData.get(m).get(targetClass).equals(targetAtbVal)){
+						String curAtb = mTrainingData.get(m).get(atb);
+						String tgtAtb = mTrainingData.get(m).get(targetClass);
+					  if( curAtb.equals(atbVals.get(cnt)) && 
+							  tgtAtb.equals(targetAtbVal)){
 							Double prevVal = 
 									atbValToCount.get(atbVals.get(cnt));
 							atbValToCount.put(atbVals.get(cnt), prevVal+1);
@@ -201,10 +280,8 @@ public class NaiveBayes {
 					
 					Double prior = atbValToCount.get(atbVals.get(cnt))/
 							(double)mTargetAtbValToCount.get(targetAtbVal);
-					System.out.println(prior);
 					
 					atbValToCount.put(atbVals.get(cnt), prior);
-					
 					atbToatbValCount.put(atb, atbValToCount);
 				}
 			}
@@ -212,6 +289,11 @@ public class NaiveBayes {
 		}
 	}
 	
+	/**
+	 * Prints the training data.
+	 *
+	 * @param dataIdx the data idx
+	 */
 	private void printTrainingData(int dataIdx){
 		String data="";
 		HashMap<String, String> vals= mTrainingData.get(dataIdx);
@@ -221,6 +303,9 @@ public class NaiveBayes {
 		System.out.println(data);
 	}
 
+	/**
+	 * Pre process training data.
+	 */
 	private void preProcessTrainingData() {
 		List<Integer> idxToRemove = new ArrayList<Integer>(); 
 
@@ -243,11 +328,9 @@ public class NaiveBayes {
 
 				/* If all attributes are same, add to drop list.*/
 				if(areAllAtbValSame){
-					//System.out.println("Same attributes:"+idx+":"+idx1);
-					//printTrainingData(idx);printTrainingData(idx1);System.out.println("\n");
-
-					/* If target value of oneAtbToVal and atbToVal are different, */
-					/* drop both. If same, drop if duplicates are not allowed.    */
+					/* If target value of oneAtbToVal and atbToVal are       */ 
+					/* different, drop both. If same, drop if duplicates are */
+					/* not allowed.    */
 					if(!oneAtbToVal.get( mAttributes.get(mTargetIdx)).
 							equals(atbToVal.get( mAttributes.get(mTargetIdx)))){
 						if(!idxToRemove.contains(idx)){
@@ -291,7 +374,8 @@ public class NaiveBayes {
 	 *
 	 * @throws IOException Signals that an I/O exception has occurred.
 	 */
-	private void readTrainingData(String trainDataPath, String delimiter) throws IOException{
+	private void readTrainingData(String trainDataPath, String delimiter) 
+			throws IOException{
 		/* Read file lines*/
 		BufferedReader br= new BufferedReader(new FileReader(trainDataPath));
 		int lineCount=0;
@@ -326,6 +410,11 @@ public class NaiveBayes {
 		return line;
 	}
 
+	/**
+	 * Sets the attributes.
+	 *
+	 * @param colTokens the new attributes
+	 */
 	private void setAttributes(String[] colTokens) {
 		for(int idx=0; idx< colTokens.length;idx++){
 			mAttributes.add(colTokens[idx]);
@@ -377,12 +466,15 @@ public class NaiveBayes {
 		NaiveBayes nb = new NaiveBayes();
 		String testDataPath="../Ass5-Demo/data2";
 		String trainDataPath="../Ass5-Demo/data1";
+		String resultFilepath = "./Results.txt";
 		try {
 			nb.train(trainDataPath, " ",4);
-			nb.test(testDataPath, " ");
+			nb.classify(testDataPath, " ");
+			nb.evaluate(resultFilepath);
 			
 		} catch (IOException e) {
-			System.out.println("Error >> Unable to find training data. Check path!");
+			System.out.println("Error >> Unable to find training data. "
+					+ "Check path!");
 		}
 
 	}
