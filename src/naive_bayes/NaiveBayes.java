@@ -100,28 +100,42 @@ public class NaiveBayes {
 			HashMap<String, String> testData =  mTestData.get(idx);
 					
 			for(String aClass: mClassPriors.keySet()){
-				double prob = mClassPriors.get(aClass);
+				double prob = Math.log(mClassPriors.get(aClass));
 				
 				for(String atb:testData.keySet()){
 					if(mAttributes.get(mTargetIdx).equals(atb)){continue;}
 					double atbPrior = 0;
 					HashMap<String, Double> atbValToPrior = 
 						mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).get(atb);
-					if(atbValToPrior.containsKey(testData.get(atb))){
+					
+					if( atbValToPrior.containsKey(testData.get(atb))){
 						atbPrior = mTgtAtbvToAtbtsToAtbtvToPrior.get(aClass).
 								get(atb).get(testData.get(atb));
-					}else{
-						// Calculate m-estimated probability
-						atbPrior = 0;
 					}
-					prob = prob*atbPrior;
+					if(atbPrior==0){
+						/*Calculate m-estimated probability*/
+						double nc=0;
+						double m=1;//Laplace Smoothing
+						double n= mTargetAtbValToCount.get(aClass);
+						double p= (double)1/(double)mAtbToUnqVals.get(atb).size();
+						atbPrior = (nc+m*p)/(n+m);
+						//System.out.println("\n\natbPrior:"+atbPrior+" p:"+p+" atb:"+atb);
+					}
+					prob = prob+Math.log(atbPrior);
 				} 
+				//System.out.println(prob);
 				result.put(aClass, prob);
 			}
+			//System.out.println("\n");
 			mPredictions.add(getPredictedClass(result));
 		}
 	}
 	
+	/**
+	 * Evaluate.
+	 *
+	 * @param resultFilepath the result filepath
+	 */
 	public void evaluate(String resultFilepath){
 		String dataToWrite= "";
 		int correctCount=0;
@@ -206,8 +220,16 @@ public class NaiveBayes {
 	 * @return the predicted class
 	 */
 	private String getPredictedClass(HashMap<String, Double> result){
-		double max=0; 
+		double max = 0;
 		String predictedClass="";
+		
+		/* Initialize max*/
+		for(String aClass:result.keySet()){
+			max=result.get(aClass);
+			predictedClass=aClass;
+		}
+		
+		/* Find the predicted class*/
 		for(String aClass:result.keySet()){
 			if(result.get(aClass)>max){
 				max = result.get(aClass);
